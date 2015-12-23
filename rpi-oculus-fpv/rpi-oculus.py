@@ -11,18 +11,20 @@ gi.require_version('Gst', '1.0')
 from gi.repository import GObject, Gst
 
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360 ! queue"
-source = "videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480 ! queue"
+source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
 
-display = "tee name=src ! queue ! glupload ! glcolorconvert ! glcolorscale ! video/x-raw(memory:GLMemory), width=(int)1280, height=(int)800, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction)30/1, format=(string)RGBA ! gltransformation ! glshader location=oculus.frag ! glimagesink"
+display = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial 30" silent=true ! glupload ! glcolorconvert ! glcolorscale ! video/x-raw(memory:GLMemory), width=(int)1280, height=(int)800, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction)30/1, format=(string)RGBA ! gltransformation ! glshader location=oculus.frag ! glimagesink'
 
-encoder = "src. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=1 bitrate=4000 ! mp4mux ! filesink location=test.mp4"
+encoder = 'src. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=1 bitrate=4000 ! mp4mux ! filesink location=test.mp4'
 
 def init():
     GObject.threads_init()
     Gst.init(None)
-    #Gst.debug_set_active(True)
-    #Gst.debug_set_colored(True)
-    #Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
+    Gst.debug_set_active(True)
+    Gst.debug_set_colored(True)
+    Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
+
+init()
 
 class FpvPipeline:
     def __init__(self):
@@ -43,8 +45,15 @@ class FpvPipeline:
         pipeline_desc = self.get_pipeline(self.record)
         logger.debug("Running %s" %pipeline_desc)
         self.pipeline = self.parse_pipeline(pipeline_desc)
+        if self.record:
+            self.set_record_overlay()
         self.activate_bus()
         self.pipeline.set_state(Gst.State.PLAYING)
+
+    def set_record_overlay(self):
+        o = self.pipeline.get_by_name('timeoverlay')
+        o.set_property('text', 'Rec')
+        o.set_property('silent', False)
 
     def is_running(self):
         if not hasattr(self, 'pipeline'):
@@ -113,8 +122,6 @@ if __name__ == '__main__':
         format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
         stream=sys.stderr
     )
-
-    init()
 
     f = FpvPipeline()
     GObject.idle_add(f.start)
