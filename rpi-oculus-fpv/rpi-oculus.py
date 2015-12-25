@@ -13,9 +13,9 @@ from gi.repository import GObject, Gst
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360"
 source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
 
-display = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial 30" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int)1280, height=(int)800, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction)60/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! glimagesink name=glimagesink'
+display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! glimagesink name=glimagesink'
 
-encoder = 'src. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=1 bitrate=4000 ! mp4mux ! filesink location=test.mp4'
+encoder_pattern = 'src. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=1 bitrate={bitrate_video} ! mp4mux ! filesink location=test.mp4'
 
 def init():
     GObject.threads_init()
@@ -26,9 +26,24 @@ def init():
 
 init()
 
-settings = {
+default_config = {
     'headtracker_enable': True,
+    'render_fps': 60,
+    'font_size': 30,
+    'bitrate_video': 4000,
+    'display_width': 1280,
+    'display_height': 800,
 }
+
+try:
+    import json
+    config = json.loadf('config.json')
+    for k in default_config.keys():
+        if not config.get(k):
+            config[k] = default_config[k]
+except Exception:
+    logger.warning('No config.json found, using defaults')
+    config = default_config
 
 class FpvPipeline:
     def __init__(self):
@@ -52,7 +67,7 @@ class FpvPipeline:
         if self.record:
             self.set_record_overlay()
         self.activate_bus()
-        if settings.get('headtracker_enable', False):
+        if config['headtracker_enable']:
             self.activate_frame_callback()
         self.pipeline.set_state(Gst.State.PLAYING)
 
@@ -70,6 +85,8 @@ class FpvPipeline:
         self.send_eos()
 
     def get_pipeline(self, record=False):
+        display = display_pattern.format(**config)
+        encoder = encoder_pattern.format(**config)
         elts = [source, display]
         p = ' ! '.join(elts)
         if record:
@@ -144,8 +161,8 @@ if __name__ == '__main__':
 
     f = FpvPipeline()
     GObject.idle_add(f.start)
-    #GObject.timeout_add_seconds(10, f.toggle_record)
-    #GObject.timeout_add_seconds(20, f.toggle_record)
+    GObject.timeout_add_seconds(10, f.toggle_record)
+    GObject.timeout_add_seconds(20, f.toggle_record)
     ml = GObject.MainLoop()
 
     def signal_handler(signal, frame):
