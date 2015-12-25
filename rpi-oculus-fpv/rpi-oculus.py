@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 # Copyright 2015, Florent Thiery 
 
+import sys
 import logging
 logger = logging.getLogger('FpvPipeline')
 
@@ -10,7 +11,6 @@ import json
 import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import GObject, Gst
-
 GObject.threads_init()
 Gst.init(None)
 Gst.debug_set_active(True)
@@ -60,21 +60,16 @@ except Exception as e:
 
 class FpvPipeline:
     def __init__(self):
-        self.actions_after_eos = list()
+        self.post_eos_actions = list()
         self.record = False
-
-    def toggle_record(self):
-        self.record = not self.record
-        logger.info('Toggling record to state %s' %self.record)
-        self.start()
 
     def start(self):
         if self.is_running():
-            self.add_action_after_eos(self.start)
+            self.add_post_eos_action(self.start)
             self.stop()
             return
         logger.info("Record: %s" %self.record)
-        pipeline_desc = self.get_pipeline(self.record)
+        pipeline_desc = self.get_pipeline_description(self.record)
         logger.debug("Running %s" %pipeline_desc)
         self.pipeline = self.parse_pipeline(pipeline_desc)
         if self.record:
@@ -84,20 +79,20 @@ class FpvPipeline:
             self.activate_frame_callback()
         self.pipeline.set_state(Gst.State.PLAYING)
 
-    def set_record_overlay(self):
-        o = self.pipeline.get_by_name('timeoverlay')
-        o.set_property('text', 'Rec')
-        o.set_property('silent', False)
-
-    def is_running(self):
-        if not hasattr(self, 'pipeline'):
-            return False
-        return self.pipeline.get_state(Gst.CLOCK_TIME_NONE)[1] == Gst.State.PLAYING
+    def toggle_record(self):
+        self.record = not self.record
+        logger.info('Toggling record to state %s' %self.record)
+        self.start()
 
     def stop(self):
         self.send_eos()
 
-    def get_pipeline(self, record=False):
+    def exit(self):
+        logger.info('Exiting cleanly')
+        self.add_post_eos_action(sys.exit)
+        self.stop()
+
+    def get_pipeline_description(self, record=False):
         display = display_pattern.format(**config)
         encoder = encoder_pattern.format(**config)
         elts = [source, display]
@@ -109,34 +104,11 @@ class FpvPipeline:
     def parse_pipeline(self, pipeline):
         return Gst.parse_launch(pipeline)
 
-    def send_eos(self, *args):
-        if hasattr(self, "pipeline") and self.is_running():
-            logger.info("Sending EOS")
-            event = Gst.Event.new_eos()
-            Gst.Element.send_event(self.pipeline, event)
-        else:
-            logger.info("No pipeline or pipeline not running, skipping EOS emission")
-            self.run_actions_after_eos()
-
-
-    def run_actions_after_eos(self):
-        for action in self.actions_after_eos:
-            logger.debug('Calling %s' %action)
-            action()
-        self.actions_after_eos = list()
-
-    def add_action_after_eos(self, action):
-        if callable(action):
-            self.actions_after_eos.append(action)
-        else:
-            logger.error('Action %s not callable' %action)
-
     def activate_bus(self):
         self.bus = self.pipeline.get_bus()
         self.bus.add_signal_watch()
         
-        self.bus.connect('message', self._on_message)
-
+        #self.bus.connect('message', self._on_message)
         self.bus.connect('message::eos', self._on_eos)
         self.bus.connect('message::error', self._on_error)
 
@@ -151,7 +123,7 @@ class FpvPipeline:
     def _on_eos(self, bus, message):
         logger.info("Got EOS")
         self.pipeline.set_state(Gst.State.NULL)
-        self.run_actions_after_eos()
+        self.run_post_eos_actions()
 
     def _on_error(self, bus, message):
         err, debug = message.parse_error()
@@ -169,12 +141,40 @@ class FpvPipeline:
         else:
             logger.debug("got unhandled message type {0}, structure {1}".format(t, message))
 
+    def send_eos(self, *args):
+        if hasattr(self, "pipeline") and self.is_running():
+            logger.info("Sending EOS")
+            event = Gst.Event.new_eos()
+            Gst.Element.send_event(self.pipeline, event)
+        else:
+            logger.info("No pipeline or pipeline not running, skipping EOS emission")
+            self.run_post_eos_actions()
+
+    def run_post_eos_actions(self):
+        for action in self.post_eos_actions:
+            logger.debug('Calling %s' %action)
+            action()
+        self.post_eos_actions = list()
+
+    def add_post_eos_action(self, action):
+        if callable(action):
+            self.post_eos_actions.append(action)
+        else:
+            logger.error('Action %s not callable' %action)
+
+    def set_record_overlay(self):
+        o = self.pipeline.get_by_name('timeoverlay')
+        o.set_property('text', 'Rec')
+        o.set_property('silent', False)
+
+    def is_running(self):
+        if not hasattr(self, 'pipeline'):
+            return False
+        return self.pipeline.get_state(Gst.CLOCK_TIME_NONE)[1] == Gst.State.PLAYING
+
 if __name__ == '__main__':
 
-    import logging
-    import sys
     import signal
-
 
     logging.basicConfig(
         level=getattr(logging, "DEBUG"),
@@ -184,14 +184,13 @@ if __name__ == '__main__':
 
     f = FpvPipeline()
     GObject.idle_add(f.start)
-    #GObject.timeout_add_seconds(10, f.toggle_record)
-    #GObject.timeout_add_seconds(20, f.toggle_record)
-    ml = GObject.MainLoop()
+    #GObject.timeout_add_seconds(3, f.toggle_record)
+    #GObject.timeout_add_seconds(13, f.exit)
 
     def signal_handler(signal, frame):
         print('You pressed Ctrl+C!')
-        f.add_action_after_eos(sys.exit)
-        f.stop()
+        f.exit()
     GObject.idle_add(signal.signal, signal.SIGINT, signal_handler)
 
+    ml = GObject.MainLoop()
     ml.run()
