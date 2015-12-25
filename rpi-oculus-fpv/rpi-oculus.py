@@ -34,9 +34,9 @@ config_default = {
     'display_height': 800,
 }
 
-def save_config(json_text, config_fpath):
+def save_config(config_dict, config_fpath):
     with open(config_fpath, 'w') as config_file:
-        json.dump(json_text, config_file, sort_keys=True, indent=4, separators=(',', ': '))
+        json.dump(config_dict, config_file, sort_keys=True, indent=4, separators=(',', ': '))
 
 def read_config(config_fpath):
     with open(config_fpath, 'r') as config_file:
