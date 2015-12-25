@@ -13,7 +13,7 @@ from gi.repository import GObject, Gst
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360"
 source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
 
-display = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial 30" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int)1280, height=(int)800, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction)60/1, format=(string)RGBA ! gltransformation ! glshader location=oculus.frag ! glimagesink'
+display = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial 30" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int)1280, height=(int)800, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction)60/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! glimagesink name=glimagesink'
 
 encoder = 'src. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=1 bitrate=4000 ! mp4mux ! filesink location=test.mp4'
 
@@ -25,6 +25,10 @@ def init():
     Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
 
 init()
+
+settings = {
+    'headtracker_enable': True,
+}
 
 class FpvPipeline:
     def __init__(self):
@@ -48,6 +52,8 @@ class FpvPipeline:
         if self.record:
             self.set_record_overlay()
         self.activate_bus()
+        if settings.get('headtracker_enable', False):
+            self.activate_frame_callback()
         self.pipeline.set_state(Gst.State.PLAYING)
 
     def set_record_overlay(self):
@@ -85,6 +91,7 @@ class FpvPipeline:
 
     def run_actions_after_eos(self):
         for action in self.actions_after_eos:
+            logger.debug('Calling %s' %action)
             action()
 
     def add_action_after_eos(self, action):
@@ -96,9 +103,16 @@ class FpvPipeline:
     def activate_bus(self):
         self.bus = self.pipeline.get_bus()
         self.bus.add_signal_watch()
-        self.bus.connect('message', self.on_message)
+        self.bus.connect('message', self._on_message)
 
-    def on_message(self, bus, message):
+    def activate_frame_callback(self):
+        sink = self.pipeline.get_by_name('glimagesink')
+        sink.connect("client-draw", self._on_draw)
+
+    def _on_draw(self, src, glcontext, sample, *args):
+        print('Frame')
+
+    def _on_message(self, bus, message):
         t = message.type
         if t == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
