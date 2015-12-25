@@ -110,6 +110,7 @@ class FpvPipeline:
         for action in self.actions_after_eos:
             logger.debug('Calling %s' %action)
             action()
+        self.actions_after_eos = list()
 
     def add_action_after_eos(self, action):
         if callable(action):
