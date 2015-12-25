@@ -10,10 +10,10 @@ gi.require_version('Gst', '1.0')
 
 from gi.repository import GObject, Gst
 
-#source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360 ! queue"
+#source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360"
 source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
 
-display = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial 30" silent=true ! glupload ! glcolorconvert ! glcolorscale ! video/x-raw(memory:GLMemory), width=(int)1280, height=(int)800, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction)30/1, format=(string)RGBA ! gltransformation ! glshader location=oculus.frag ! glimagesink'
+display = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial 30" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int)1280, height=(int)800, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction)60/1, format=(string)RGBA ! gltransformation ! glshader location=oculus.frag ! glimagesink'
 
 encoder = 'src. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=1 bitrate=4000 ! mp4mux ! filesink location=test.mp4'
 
@@ -28,7 +28,7 @@ init()
 
 class FpvPipeline:
     def __init__(self):
-        self.next_actions = list()
+        self.actions_after_eos = list()
         self.record = False
 
     def toggle_record(self):
@@ -38,7 +38,7 @@ class FpvPipeline:
 
     def start(self):
         if self.is_running():
-            self.add_next_action(self.start)
+            self.add_action_after_eos(self.start)
             self.stop()
             return
         logger.info("Record: %s" %self.record)
@@ -79,16 +79,19 @@ class FpvPipeline:
         Gst.Element.send_event(self.pipeline, event)
 
     def on_eos(self):
-        logger.info('Got EOS')
+        logger.info("Got EOS")
         self.pipeline.set_state(Gst.State.NULL)
-        self.run_next_action()
+        self.run_actions_after_eos()
 
-    def run_next_action(self):
-        next_action = self.next_actions.pop(0)
-        next_action()
+    def run_actions_after_eos(self):
+        for action in self.actions_after_eos:
+            action()
 
-    def add_next_action(self, action):
-        self.next_actions.append(action)
+    def add_action_after_eos(self, action):
+        if callable(action):
+            self.actions_after_eos.append(action)
+        else:
+            logger.error('Action %s not callable' %action)
 
     def activate_bus(self):
         self.bus = self.pipeline.get_bus()
@@ -116,6 +119,8 @@ if __name__ == '__main__':
 
     import logging
     import sys
+    import signal
+
 
     logging.basicConfig(
         level=getattr(logging, "DEBUG"),
@@ -125,7 +130,14 @@ if __name__ == '__main__':
 
     f = FpvPipeline()
     GObject.idle_add(f.start)
-    GObject.timeout_add_seconds(10, f.toggle_record)
-    GObject.timeout_add_seconds(20, f.toggle_record)
+    #GObject.timeout_add_seconds(10, f.toggle_record)
+    #GObject.timeout_add_seconds(20, f.toggle_record)
     ml = GObject.MainLoop()
+
+    def signal_handler(signal, frame):
+        print('You pressed Ctrl+C!')
+        f.add_action_after_eos(sys.exit)
+        f.stop()
+    GObject.idle_add(signal.signal, signal.SIGINT, signal_handler)
+
     ml.run()
