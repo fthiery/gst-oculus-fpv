@@ -5,6 +5,8 @@
 import logging
 logger = logging.getLogger('FpvPipeline')
 
+import json
+
 import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import GObject, Gst
@@ -14,7 +16,7 @@ Gst.init(None)
 Gst.debug_set_active(True)
 Gst.debug_set_colored(True)
 Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
-Gst.debug_set_threshold_for_name("glimage*", 5)
+#Gst.debug_set_threshold_for_name("glimage*", 5)
 
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, colorimetry=(string)1:4:7:1, framerate=(fraction)30/1"
 source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
@@ -23,7 +25,7 @@ display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=tim
 
 encoder_pattern = 'src. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=1 bitrate={bitrate_video} ! mp4mux ! filesink location=test.mp4'
 
-default_config = {
+config_default = {
     'headtracker_enable': True,
     'render_fps': 60,
     'font_size': 30,
@@ -32,15 +34,31 @@ default_config = {
     'display_height': 800,
 }
 
+def save_config(json_text, config_fpath):
+    with open(config_fpath, 'w') as config_file:
+        json.dump(config, config_file)
+
+def read_config(config_fpath):
+    with open(config_fpath, 'r') as config_file:
+        return json.load(config_file)
+
 try:
-    import json
-    config = json.loadf('config.json')
-    for k in default_config.keys():
+    config_fpath = 'config.json'
+    config = read_config(config_fpath)
+    for k in config_default.keys():
+        changed = False
         if not config.get(k):
-            config[k] = default_config[k]
-except Exception:
-    logger.warning('No config.json found, using defaults')
-    config = default_config
+            config[k] = config_default[k]
+            changed = True
+        if changed:
+            save_config(config, config_fpath)
+            print('Config updated')
+except Exception as e:
+    print('Error while parsing configuration file, using defaults (%s)' %e)
+    config = config_default
+
+import sys
+sys.exit()
 
 class FpvPipeline:
     def __init__(self):
