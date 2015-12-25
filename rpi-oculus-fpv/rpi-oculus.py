@@ -36,7 +36,7 @@ config_default = {
 
 def save_config(json_text, config_fpath):
     with open(config_fpath, 'w') as config_file:
-        json.dump(config, config_file)
+        json.dump(json_text, config_file, sort_keys=True, indent=4, separators=(',', ': '))
 
 def read_config(config_fpath):
     with open(config_fpath, 'r') as config_file:
@@ -57,8 +57,6 @@ except Exception as e:
     print('Error while parsing configuration file, using defaults (%s)' %e)
     config = config_default
 
-import sys
-sys.exit()
 
 class FpvPipeline:
     def __init__(self):
