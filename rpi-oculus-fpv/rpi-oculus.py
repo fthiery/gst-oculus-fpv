@@ -115,7 +115,7 @@ class FpvPipeline:
 
     def activate_frame_callback(self):
         sink = self.pipeline.get_by_name('glimagesink')
-        sink.connect("client-draw", self._on_draw)
+        sink.connect("client-draw", self._on_frame)
 
     def set_record_overlay(self):
         o = self.pipeline.get_by_name('timeoverlay')
@@ -124,8 +124,8 @@ class FpvPipeline:
 
     # Event callbacks
 
-    def _on_draw(self, src, glcontext, sample, *args):
-        #print('Frame')
+    def _on_frame(self, src, glcontext, sample, *args):
+        pass 
 
     def _on_eos(self, bus, message):
         logger.info("Got EOS")
