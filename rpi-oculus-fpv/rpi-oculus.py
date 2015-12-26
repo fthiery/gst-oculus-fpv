@@ -21,12 +21,14 @@ Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, colorimetry=(string)1:4:7:1, framerate=(fraction)30/1"
 source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
 
-display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! glimagesink name=glimagesink'
+# glimagesink currently does not yet post key presses on the bus, so lets use xvimagesink to toggle recording using the "r" key for testing
+display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! gldownload ! queue ! videoconvert ! xvimagesink name=glimagesink'
+#display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! glimagesink name=glimagesink'
 
 encoder_pattern = 'src. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=1 bitrate={bitrate_video} ! mp4mux ! filesink location=test.mp4'
 
 config_default = {
-    'headtracker_enable': True,
+    'headtracker_enable': False,
     'render_fps': 60,
     'font_size': 30,
     'bitrate_video': 4000,
@@ -92,6 +94,8 @@ class FpvPipeline:
         self.add_post_eos_action(sys.exit)
         self.stop()
 
+    # Initializations
+
     def get_pipeline_description(self, record=False):
         display = display_pattern.format(**config)
         encoder = encoder_pattern.format(**config)
@@ -101,14 +105,11 @@ class FpvPipeline:
             p = "%s %s" %(p, encoder)
         return p
 
-    def parse_pipeline(self, pipeline):
-        return Gst.parse_launch(pipeline)
-
     def activate_bus(self):
         self.bus = self.pipeline.get_bus()
         self.bus.add_signal_watch()
         
-        #self.bus.connect('message', self._on_message)
+        self.bus.connect('message', self._on_message)
         self.bus.connect('message::eos', self._on_eos)
         self.bus.connect('message::error', self._on_error)
 
@@ -116,9 +117,15 @@ class FpvPipeline:
         sink = self.pipeline.get_by_name('glimagesink')
         sink.connect("client-draw", self._on_draw)
 
+    def set_record_overlay(self):
+        o = self.pipeline.get_by_name('timeoverlay')
+        o.set_property('text', 'Rec')
+        o.set_property('silent', False)
+
+    # Event callbacks
+
     def _on_draw(self, src, glcontext, sample, *args):
         #print('Frame')
-        pass
 
     def _on_eos(self, bus, message):
         logger.info("Got EOS")
@@ -133,13 +140,38 @@ class FpvPipeline:
     def _on_message(self, bus, message):
         t = message.type
         if t == Gst.MessageType.ELEMENT:
-            name = message.get_structure().get_name()
-            res = message.get_structure()
-            source = message.src.get_name()  # (str(message.src)).split(":")[2].split(" ")[0]
-            #self.launch_event(name, {"source": source, "data": res})
-            #self.launch_event('gst_element_message', {"source": source, "name": name, "data": res})
+            struct = message.get_structure()
+            sname = struct.get_name()
+            if sname == 'GstNavigationMessage':
+                event = struct.get_value('event')
+                estruct = event.get_structure()
+                if estruct.get_value('event') == "key-release":
+                    key = estruct.get_value('key')
+                    self._on_key_release(key)
+                #self.print_struct_content(estruct)
         else:
             logger.debug("got unhandled message type {0}, structure {1}".format(t, message))
+
+    def _on_key_release(self, key):
+        logger.info('Key %s released' %key)
+        if key == "r":
+            self.toggle_record()
+
+    # GStreamer helpers
+
+    def parse_pipeline(self, pipeline):
+        return Gst.parse_launch(pipeline)
+
+    def is_running(self):
+        if not hasattr(self, 'pipeline'):
+            return False
+        return self.pipeline.get_state(Gst.CLOCK_TIME_NONE)[1] == Gst.State.PLAYING
+
+    def print_struct_content(self, struct):
+        for i in range(struct.n_fields()):
+            field_name = struct.nth_field_name(i)
+            field_value = struct.get_value(field_name)
+            print('%s = %s' %(field_name, field_value))
 
     def send_eos(self, *args):
         if hasattr(self, "pipeline") and self.is_running():
@@ -162,15 +194,6 @@ class FpvPipeline:
         else:
             logger.error('Action %s not callable' %action)
 
-    def set_record_overlay(self):
-        o = self.pipeline.get_by_name('timeoverlay')
-        o.set_property('text', 'Rec')
-        o.set_property('silent', False)
-
-    def is_running(self):
-        if not hasattr(self, 'pipeline'):
-            return False
-        return self.pipeline.get_state(Gst.CLOCK_TIME_NONE)[1] == Gst.State.PLAYING
 
 if __name__ == '__main__':
 
