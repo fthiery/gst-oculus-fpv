@@ -22,10 +22,12 @@ Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
 source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
 
 # glimagesink currently does not yet post key presses on the bus, so lets use xvimagesink to toggle recording using the "r" key for testing
-display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! gldownload ! queue ! videoconvert ! xvimagesink name=glimagesink'
-#display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! glimagesink name=glimagesink'
+#display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! gldownload ! queue ! videoconvert ! xvimagesink name=glimagesink'
+display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glimagesink name=glimagesink'
+
 
 encoder_pattern = 'src. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=1 bitrate={bitrate_video} ! mp4mux ! filesink location=test.mp4'
+#encoder_pattern = 'src. ! queue ! vaapipostproc ! vaapiencode_h264 rate-control=2 bitrate={bitrate_video} ! h264parse ! mp4mux ! filesink location=test_vaapi.mp4'
 
 config_default = {
     'headtracker_enable': False,
@@ -61,9 +63,10 @@ except Exception as e:
 
 
 class FpvPipeline:
-    def __init__(self):
+    def __init__(self, mainloop=None):
         self.post_eos_actions = list()
         self.record = False
+        self.mainloop = mainloop
 
     def start(self):
         if self.is_running():
@@ -91,7 +94,10 @@ class FpvPipeline:
 
     def exit(self):
         logger.info('Exiting cleanly')
-        self.add_post_eos_action(sys.exit)
+        if self.mainloop:
+            self.add_post_eos_action(self.mainloop.quit)
+        else:
+            self.add_post_eos_action(sys.exit)
         self.stop()
 
     # Initializations
@@ -155,7 +161,9 @@ class FpvPipeline:
     def _on_key_release(self, key):
         logger.info('Key %s released' %key)
         if key == "r":
-            self.toggle_record()
+            self.toggle_record(i)
+        elif key == "q":
+            self.exit()
 
     # GStreamer helpers
 
@@ -205,7 +213,9 @@ if __name__ == '__main__':
         stream=sys.stderr
     )
 
-    f = FpvPipeline()
+    ml = GObject.MainLoop()
+
+    f = FpvPipeline(ml)
     GObject.idle_add(f.start)
     #GObject.timeout_add_seconds(3, f.toggle_record)
     #GObject.timeout_add_seconds(13, f.exit)
@@ -213,7 +223,10 @@ if __name__ == '__main__':
     def signal_handler(signal, frame):
         print('You pressed Ctrl+C!')
         f.exit()
-    GObject.idle_add(signal.signal, signal.SIGINT, signal_handler)
 
-    ml = GObject.MainLoop()
+    def install_signal_handler():
+        signal.signal(signal.SIGINT, signal_handler)
+
+    GObject.idle_add(install_signal_handler)
+
     ml.run()
