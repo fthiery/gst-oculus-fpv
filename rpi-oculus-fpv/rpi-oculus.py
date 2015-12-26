@@ -161,7 +161,7 @@ class FpvPipeline:
     def _on_key_release(self, key):
         logger.info('Key %s released' %key)
         if key == "r":
-            self.toggle_record(i)
+            self.toggle_record()
         elif key == "q":
             self.exit()
 
