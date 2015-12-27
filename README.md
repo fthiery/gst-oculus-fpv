@@ -1,8 +1,11 @@
 # rpi-oculus-fpv
 
+
 NB: this is work in progress
 
 Use a raspberrypi to produce side-by-side video from FPV video (ex: quadcopters). Currently designed for Oculus Rift DK1 and other dedicated HMDs that have a single input and require side by side rendering.
+
+![screenshot](https://raw.githubusercontent.com/fthiery/rpi-oculus-fpv/master/screenshot.png)
 
 ## Compiling glimagesink for rpi
 
