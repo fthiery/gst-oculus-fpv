@@ -21,13 +21,102 @@ Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, colorimetry=(string)1:4:7:1, framerate=(fraction)30/1"
 source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
 
-# glimagesink currently does not yet post key presses on the bus, so lets use xvimagesink to toggle recording using the "r" key for testing
+# as of gsteamer 1.6.2 glimagesink currently does not yet post key presses on the bus, so lets use xvimagesink to toggle recording using the "r" key for testing and "q" for quitting (ctrl+c also works)
 #display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! gldownload ! queue ! videoconvert ! xvimagesink name=glimagesink'
-display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glimagesink name=glimagesink'
-
+display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader name=glshader ! glimagesink name=glimagesink'
 
 encoder_pattern = 'src. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=1 bitrate={bitrate_video} ! mp4mux ! filesink location=test.mp4'
 #encoder_pattern = 'src. ! queue ! vaapipostproc ! vaapiencode_h264 rate-control=2 bitrate={bitrate_video} ! h264parse ! mp4mux ! filesink location=test_vaapi.mp4'
+
+shader_pattern = '''
+#version 100
+#ifdef GL_ES
+precision mediump float;
+#endif
+varying vec2 v_texcoord;
+uniform sampler2D tex;
+
+const vec4 kappa = vec4(1.0,1.7,0.7,15.0);
+
+const float screen_width = {display_width}.0;
+const float screen_height = {display_height}.0;
+
+const float scaleFactor = 0.9;
+
+const vec2 leftCenter = vec2(0.25, 0.5);
+const vec2 rightCenter = vec2(0.75, 0.5);
+
+const float separation = -0.05;
+
+const bool stereo_input = false;
+
+// Scales input texture coordinates for distortion.
+vec2 hmdWarp(vec2 LensCenter, vec2 texCoord, vec2 Scale, vec2 ScaleIn) {{
+    vec2 theta = (texCoord - LensCenter) * ScaleIn; 
+    float rSq = theta.x * theta.x + theta.y * theta.y;
+    vec2 rvector = theta * (kappa.x + kappa.y * rSq + kappa.z * rSq * rSq + kappa.w * rSq * rSq * rSq);
+    vec2 tc = LensCenter + Scale * rvector;
+    return tc;
+}}
+
+bool validate(vec2 tc, int eye) {{
+    if ( stereo_input ) {{
+        //keep within bounds of texture 
+        if ((eye == 1 && (tc.x < 0.0 || tc.x > 0.5)) ||   
+            (eye == 0 && (tc.x < 0.5 || tc.x > 1.0)) ||
+            tc.y < 0.0 || tc.y > 1.0) {{
+            return false;
+        }}
+    }} else {{
+        if ( tc.x < 0.0 || tc.x > 1.0 || 
+             tc.y < 0.0 || tc.y > 1.0 ) {{
+             return false;
+        }}
+    }}
+    return true;
+}}
+
+void main() {{
+    float as = float(screen_width / 2.0) / float(screen_height);
+    vec2 Scale = vec2(0.5, as);
+    vec2 ScaleIn = vec2(2.0 * scaleFactor, 1.0 / as * scaleFactor);
+
+    vec2 texCoord = v_texcoord;
+    
+    vec2 tc = vec2(0);
+    vec4 color = vec4(0);
+    
+    if ( texCoord.x < 0.5 ) {{
+        texCoord.x += separation;
+        texCoord = hmdWarp(leftCenter, texCoord, Scale, ScaleIn );
+        
+        if ( !stereo_input ) {{
+            texCoord.x *= 2.0;
+        }}
+        
+        color = texture2D(tex, texCoord);
+        
+        if ( !validate(texCoord, 0) ) {{
+            color = vec4(0);
+        }}
+    }} else {{
+        texCoord.x -= separation;
+        texCoord = hmdWarp(rightCenter, texCoord, Scale, ScaleIn);
+        
+        if ( !stereo_input ) {{
+            texCoord.x = (texCoord.x - 0.5) * 2.0;
+        }}
+        
+        color = texture2D(tex, texCoord);
+        
+        if ( !validate(texCoord, 1) ) {{
+            color = vec4(0);
+        }}
+    }}
+    
+    gl_FragColor = color;
+}}
+'''
 
 config_default = {
     'headtracker_enable': False,
@@ -80,6 +169,7 @@ class FpvPipeline:
         if self.record:
             self.set_record_overlay()
         self.activate_bus()
+        self.update_shader()
         if config['headtracker_enable']:
             self.activate_frame_callback()
         self.pipeline.set_state(Gst.State.PLAYING)
@@ -124,6 +214,14 @@ class FpvPipeline:
     def activate_frame_callback(self):
         sink = self.pipeline.get_by_name('glimagesink')
         sink.connect("client-draw", self._on_frame)
+
+    def update_shader(self):
+        shader = shader_pattern.format(**config)
+        glshader = self.pipeline.get_by_name('glshader')
+        try:
+            glshader.set_property("fragment", shader)
+        except TypeError:
+            glshader.set_property("location", "oculus.frag")
 
     def set_record_overlay(self):
         o = self.pipeline.get_by_name('timeoverlay')

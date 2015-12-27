@@ -1,5 +1,7 @@
-#extension GL_ARB_texture_rectangle : enable
+#version 100
+#ifdef GL_ES
 precision mediump float;
+#endif
 varying vec2 v_texcoord;
 uniform sampler2D tex;
 
