@@ -90,13 +90,15 @@ class FpvPipeline:
         self.start()
 
     def stop(self):
-        self.send_eos()
+        GObject.idle_add(self.send_eos)
 
     def exit(self):
         logger.info('Exiting cleanly')
         if self.mainloop:
+            logger.debug('Stopping mainloop')
             self.add_post_eos_action(self.mainloop.quit)
         else:
+            logger.warning('Exiting (sys.exit)')
             self.add_post_eos_action(sys.exit)
         self.stop()
 
@@ -214,19 +216,13 @@ if __name__ == '__main__':
     )
 
     ml = GObject.MainLoop()
-
     f = FpvPipeline(ml)
     GObject.idle_add(f.start)
     #GObject.timeout_add_seconds(3, f.toggle_record)
     #GObject.timeout_add_seconds(13, f.exit)
 
-    def signal_handler(signal, frame):
-        print('You pressed Ctrl+C!')
+    try:
+        ml.run()
+    except KeyboardInterrupt:
+        logger.info('Ctrl+C hit, stopping')
         f.exit()
-
-    def install_signal_handler():
-        signal.signal(signal.SIGINT, signal_handler)
-
-    GObject.idle_add(install_signal_handler)
-
-    ml.run()
