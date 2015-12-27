@@ -150,12 +150,19 @@ except Exception as e:
     print('Error while parsing configuration file, using defaults (%s)' %e)
     config = config_default
 
+if config['headtracker_enable']:
+    from rift import PyRift
+    import math
 
 class FpvPipeline:
     def __init__(self, mainloop=None):
         self.post_eos_actions = list()
         self.record = False
         self.mainloop = mainloop
+        if config['headtracker_enable']:
+            self.rift = PyRift()
+            logger.debug('OpenHMD detection result:')
+            logger.debug(self.rift.printDeviceInfo())
 
     def start(self):
         if self.is_running():
@@ -231,7 +238,12 @@ class FpvPipeline:
     # Event callbacks
 
     def _on_frame(self, src, glcontext, sample, *args):
-        pass 
+      self.rift.poll()
+      x, y, z, w = self.rift.rotation
+      yaw = math.asin(2*x*y + 2*z*w)
+      pitch = math.atan2(2*x*w - 2*y*z, 1 - 2*x*x - 2*z*z)
+      roll = math.atan2(2*y*w - 2*x*z, 1 - 2*y*y - 2*z*z)
+      logger.debug("rotation quat: %f %f %f %f, yaw: %s pitch: %s roll: %s" % (x, y, z, w, yaw, pitch, roll))
 
     def _on_eos(self, bus, message):
         logger.info("Got EOS")
@@ -304,9 +316,6 @@ class FpvPipeline:
 
 
 if __name__ == '__main__':
-
-    import signal
-
     logging.basicConfig(
         level=getattr(logging, "DEBUG"),
         format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
