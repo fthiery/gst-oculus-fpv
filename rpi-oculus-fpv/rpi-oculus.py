@@ -227,7 +227,7 @@ class FpvPipeline:
     def enable_headtracker_fov(self):
         gltransformation = self.pipeline.get_by_name('gltransformation')
         gltransformation.set_property('fov', config['headtracker_fov'])
-        gltransformation.set_property('pivot-z', 5)
+        gltransformation.set_property('pivot-z', 20)
 
     def update_headtracker_fov(self, rot_x, rot_y, rot_z):
         gltransformation = self.pipeline.get_by_name('gltransformation')
@@ -257,7 +257,7 @@ class FpvPipeline:
       pitch = math.atan2(2*x*w - 2*y*z, 1 - 2*x*x - 2*z*z)
       roll = math.atan2(2*y*w - 2*x*z, 1 - 2*y*y - 2*z*z)
       logger.debug("rotation quat: %f %f %f %f, yaw: %s pitch: %s roll: %s" % (x, y, z, w, yaw, pitch, roll))
-      self.update_headtracker_fov(pitch, roll, yaw)
+      GObject.idle_add(self.update_headtracker_fov, pitch, roll, yaw)
 
     def _on_eos(self, bus, message):
         logger.info("Got EOS")
