@@ -4,7 +4,7 @@ NB: this is work in progress
 
 This software uses gstreamer and OpenGL to to produce side-by-side video from a single video input (e.g. FPV quadcopters) for display on an OculusRift device. It also supports headtracking on PC, but currently not on raspberrypi. 
 
-![screenshot](https://raw.githubusercontent.com/fthiery/rpi-oculus-fpv/master/screenshot.png)
+![screenshot](https://raw.githubusercontent.com/fthiery/gst-oculus-fpv/master/screenshot.png)
 
 ## Compiling glimagesink for rpi (Arch only)
 
