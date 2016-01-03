@@ -1,8 +1,8 @@
-# rpi-oculus-fpv
+# gst-oculus-fpv
 
 NB: this is work in progress
 
-Use a raspberrypi to produce side-by-side video from FPV video (ex: quadcopters). Currently designed for Oculus Rift DK1 and other dedicated HMDs that have a single input and require side by side rendering. 
+This software uses gstreamer and OpenGL to to produce side-by-side video from a single video input (e.g. FPV quadcopters) for display on an OculusRift device. It also supports headtracking on PC, but currently not on raspberrypi. 
 
 ![screenshot](https://raw.githubusercontent.com/fthiery/rpi-oculus-fpv/master/screenshot.png)
 
