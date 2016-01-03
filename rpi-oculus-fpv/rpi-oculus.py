@@ -119,7 +119,8 @@ void main() {{
 '''
 
 config_default = {
-    'headtracker_enable': False,
+    'headtracker_enable': True,
+    'headtracker_fov': 60,
     'render_fps': 60,
     'font_size': 30,
     'bitrate_video': 4000,
@@ -178,7 +179,8 @@ class FpvPipeline:
         self.activate_bus()
         self.update_shader()
         if config['headtracker_enable']:
-            self.activate_frame_callback()
+            self.enable_frame_callback()
+            self.enable_headtracker_fov()
         self.pipeline.set_state(Gst.State.PLAYING)
 
     def toggle_record(self):
@@ -218,9 +220,20 @@ class FpvPipeline:
         self.bus.connect('message::eos', self._on_eos)
         self.bus.connect('message::error', self._on_error)
 
-    def activate_frame_callback(self):
+    def enable_frame_callback(self):
         sink = self.pipeline.get_by_name('glimagesink')
         sink.connect("client-draw", self._on_frame)
+
+    def enable_headtracker_fov(self):
+        gltransformation = self.pipeline.get_by_name('gltransformation')
+        gltransformation.set_property('fov', config['headtracker_fov'])
+        gltransformation.set_property('pivot-z', 5)
+
+    def update_headtracker_fov(self, rot_x, rot_y, rot_z):
+        gltransformation = self.pipeline.get_by_name('gltransformation')
+        gltransformation.set_property('rotation-x', rot_x)
+        gltransformation.set_property('rotation-y', rot_y)
+        gltransformation.set_property('rotation-z', rot_z)
 
     def update_shader(self):
         shader = shader_pattern.format(**config)
@@ -244,6 +257,7 @@ class FpvPipeline:
       pitch = math.atan2(2*x*w - 2*y*z, 1 - 2*x*x - 2*z*z)
       roll = math.atan2(2*y*w - 2*x*z, 1 - 2*y*y - 2*z*z)
       logger.debug("rotation quat: %f %f %f %f, yaw: %s pitch: %s roll: %s" % (x, y, z, w, yaw, pitch, roll))
+      self.update_headtracker_fov(pitch, roll, yaw)
 
     def _on_eos(self, bus, message):
         logger.info("Got EOS")
