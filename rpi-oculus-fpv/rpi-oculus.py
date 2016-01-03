@@ -19,14 +19,17 @@ Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
 #Gst.debug_set_threshold_for_name("glimage*", 5)
 
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, colorimetry=(string)1:4:7:1, framerate=(fraction)30/1"
-source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
+pipeline_source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
 
 # as of gsteamer 1.6.2 glimagesink currently does not yet post key presses on the bus, so lets use xvimagesink to toggle recording using the "r" key for testing and "q" for quitting (ctrl+c also works)
-#display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! gldownload ! queue ! videoconvert ! xvimagesink name=glimagesink'
-display_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader name=glshader ! glimagesink name=glimagesink'
+#pipeline_preprocess_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! gldownload ! queue ! videoconvert ! xvimagesink name=glimagesink'
+pipeline_preprocess_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA'
 
-encoder_pattern = 'src. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=1 bitrate={bitrate_video} ! mp4mux ! filesink location=test.mp4'
-#encoder_pattern = 'src. ! queue ! vaapipostproc ! vaapiencode_h264 rate-control=2 bitrate={bitrate_video} ! h264parse ! mp4mux ! filesink location=test_vaapi.mp4'
+pipeline_headtracker = 'gltransformation name=gltransformation'
+pipeline_sink = 'glshader name=glshader ! glimagesink name=glimagesink'
+
+pipeline_encoder_pattern = 'src. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=1 bitrate={bitrate_video} ! mp4mux ! filesink location=test.mp4'
+#pipeline_encoder_pattern = 'src. ! queue ! vaapipostproc ! vaapiencode_h264 rate-control=2 bitrate={bitrate_video} ! h264parse ! mp4mux ! filesink location=test_vaapi.mp4'
 
 shader_pattern = '''
 #version 100
@@ -119,7 +122,7 @@ void main() {{
 '''
 
 config_default = {
-    'headtracker_enable': True,
+    'headtracker_enable': False,
     'headtracker_fov': 60,
     'render_fps': 60,
     'font_size': 30,
@@ -204,12 +207,17 @@ class FpvPipeline:
     # Initializations
 
     def get_pipeline_description(self, record=False):
-        display = display_pattern.format(**config)
-        encoder = encoder_pattern.format(**config)
-        elts = [source, display]
+        pipeline_preprocess = pipeline_preprocess_pattern.format(**config)
+        pipeline_encoder = pipeline_encoder_pattern.format(**config)
+
+        if config['headtracker_enable']:
+            elts = [pipeline_source, pipeline_preprocess, pipeline_headtracker, pipeline_sink]
+        else:
+            elts = [pipeline_source, pipeline_preprocess, pipeline_sink]
+
         p = ' ! '.join(elts)
         if record:
-            p = "%s %s" %(p, encoder)
+            p = "%s %s" %(p, pipeline_encoder)
         return p
 
     def activate_bus(self):
