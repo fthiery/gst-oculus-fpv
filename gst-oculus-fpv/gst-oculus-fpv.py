@@ -19,7 +19,8 @@ Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
 #Gst.debug_set_threshold_for_name("glimage*", 5)
 
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, colorimetry=(string)1:4:7:1, framerate=(fraction)30/1"
-pipeline_source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
+#pipeline_source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
+pipeline_source = 'filesrc location=../sim.mp4 ! qtdemux ! avdec_h264 ! queue'
 
 # as of gsteamer 1.6.2 glimagesink currently does not yet post key presses on the bus, so lets use xvimagesink to toggle recording using the "r" key for testing and "q" for quitting (ctrl+c also works)
 #pipeline_preprocess_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! gldownload ! queue ! videoconvert ! xvimagesink name=glimagesink'
@@ -122,8 +123,8 @@ void main() {{
 '''
 
 config_default = {
-    'headtracker_enable': False,
-    'headtracker_fov': 60,
+    'headtracker_enable': True,
+    'headtracker_fov': 70,
     'render_fps': 60,
     'font_size': 30,
     'bitrate_video': 4000,
@@ -230,12 +231,13 @@ class FpvPipeline:
 
     def enable_frame_callback(self):
         sink = self.pipeline.get_by_name('glimagesink')
-        sink.connect("client-draw", self._on_frame)
+        if sink:
+            sink.connect("client-draw", self._on_frame)
 
     def enable_headtracker_fov(self):
         gltransformation = self.pipeline.get_by_name('gltransformation')
         gltransformation.set_property('fov', config['headtracker_fov'])
-        gltransformation.set_property('pivot-z', 20)
+        gltransformation.set_property('pivot-z', 30)
 
     def update_headtracker_fov(self, rot_x, rot_y, rot_z):
         gltransformation = self.pipeline.get_by_name('gltransformation')
@@ -264,8 +266,8 @@ class FpvPipeline:
       yaw = math.asin(2*x*y + 2*z*w)
       pitch = math.atan2(2*x*w - 2*y*z, 1 - 2*x*x - 2*z*z)
       roll = math.atan2(2*y*w - 2*x*z, 1 - 2*y*y - 2*z*z)
-      logger.debug("rotation quat: %f %f %f %f, yaw: %s pitch: %s roll: %s" % (x, y, z, w, yaw, pitch, roll))
-      GObject.idle_add(self.update_headtracker_fov, pitch, roll, yaw)
+      #logger.debug("rotation quat: %f %f %f %f, yaw: %s pitch: %s roll: %s" % (x, y, z, w, yaw, pitch, roll))
+      GObject.idle_add(self.update_headtracker_fov, pitch, -roll, yaw, priority=GObject.PRIORITY_HIGH)
 
     def _on_eos(self, bus, message):
         logger.info("Got EOS")
@@ -290,7 +292,8 @@ class FpvPipeline:
                     self._on_key_release(key)
                 #self.print_struct_content(estruct)
         else:
-            logger.debug("got unhandled message type {0}, structure {1}".format(t, message))
+            #logger.debug("got unhandled message type {0}, structure {1}".format(t, message))
+            pass
 
     def _on_key_release(self, key):
         logger.info('Key %s released' %key)
