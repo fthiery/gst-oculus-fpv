@@ -19,8 +19,8 @@ Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
 #Gst.debug_set_threshold_for_name("glimage*", 5)
 
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, colorimetry=(string)1:4:7:1, framerate=(fraction)30/1"
-#pipeline_source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
-pipeline_source = 'filesrc location=../sim.mp4 ! qtdemux ! avdec_h264 ! queue'
+pipeline_source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
+#pipeline_source = 'filesrc location=../sim.mp4 ! qtdemux ! avdec_h264 ! queue'
 
 # as of gsteamer 1.6.2 glimagesink currently does not yet post key presses on the bus, so lets use xvimagesink to toggle recording using the "r" key for testing and "q" for quitting (ctrl+c also works)
 #pipeline_preprocess_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! gldownload ! queue ! videoconvert ! xvimagesink name=glimagesink'
