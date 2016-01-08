@@ -3,6 +3,8 @@
 # Copyright 2015, Florent Thiery 
 
 import sys
+import time
+
 import logging
 logger = logging.getLogger('FpvPipeline')
 
@@ -19,10 +21,12 @@ Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
 #Gst.debug_set_threshold_for_name("glimage*", 5)
 
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, colorimetry=(string)1:4:7:1, framerate=(fraction)30/1"
-pipeline_source = 'videotestsrc ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
+pipeline_source = 'videotestsrc is-live=true ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
 #pipeline_source = 'filesrc location=../sim.mp4 ! qtdemux ! avdec_h264 ! queue'
+#pipeline_source = 'filesrc location=../sim_short.mp4 ! qtdemux ! avdec_h264 ! queue'
 
-# as of gsteamer 1.6.2 glimagesink currently does not yet post key presses on the bus, so lets use xvimagesink to toggle recording using the "r" key for testing and "q" for quitting (ctrl+c also works)
+
+# as of gstreamer 1.6.2 glimagesink currently does not yet post key presses on the bus, so lets use xvimagesink to toggle recording using the "r" key for testing and "q" for quitting (ctrl+c also works)
 #pipeline_preprocess_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA ! gltransformation name=gltransformation ! glshader location=oculus.frag ! gldownload ! queue ! videoconvert ! xvimagesink name=glimagesink'
 pipeline_preprocess_pattern = 'tee name=src ! queue name=qtimeoverlay ! timeoverlay name=timeoverlay font-desc="Arial {font_size}" silent=true ! glupload ! glcolorconvert ! glcolorscale ! videorate ! video/x-raw(memory:GLMemory), width=(int){display_width}, height=(int){display_height}, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, framerate=(fraction){render_fps}/1, format=(string)RGBA'
 
@@ -130,6 +134,7 @@ config_default = {
     'bitrate_video': 4000,
     'display_width': 1280,
     'display_height': 800,
+    'benchmark_mode': False,
 }
 
 def save_config(config_dict, config_fpath):
@@ -159,6 +164,15 @@ if config['headtracker_enable']:
     from rift import PyRift
     import math
 
+if config['benchmark_mode']:
+    import os
+    os.environ['vblank_mode']="0" 
+    NUM_BUFFERS = 1000
+    pipeline_source = 'videotestsrc num-buffers=%s is-live=false ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480' %NUM_BUFFERS
+    pipeline_source = 'filesrc location=../sim_short.mp4 ! qtdemux ! avdec_h264 ! queue'
+    #NUM_BUFFERS = 862
+    #pipeline_sink = 'glshader name=glshader ! glimagesink name=glimagesink sync=false'
+
 class FpvPipeline:
     def __init__(self, mainloop=None):
         self.post_eos_actions = list()
@@ -186,6 +200,7 @@ class FpvPipeline:
             self.enable_frame_callback()
             self.enable_headtracker_fov()
         self.pipeline.set_state(Gst.State.PLAYING)
+        self.start_time = time.time()
 
     def toggle_record(self):
         self.record = not self.record
@@ -196,6 +211,10 @@ class FpvPipeline:
         GObject.idle_add(self.send_eos)
 
     def exit(self):
+        self.schedule_exit()
+        self.stop()
+
+    def schedule_exit(self):
         logger.info('Exiting cleanly')
         if self.mainloop:
             logger.debug('Stopping mainloop')
@@ -203,7 +222,6 @@ class FpvPipeline:
         else:
             logger.warning('Exiting (sys.exit)')
             self.add_post_eos_action(sys.exit)
-        self.stop()
 
     # Initializations
 
@@ -261,17 +279,28 @@ class FpvPipeline:
     # Event callbacks
 
     def _on_frame(self, src, glcontext, sample, *args):
-      self.rift.poll()
-      x, y, z, w = self.rift.rotation
-      yaw = math.asin(2*x*y + 2*z*w)
-      pitch = math.atan2(2*x*w - 2*y*z, 1 - 2*x*x - 2*z*z)
-      roll = math.atan2(2*y*w - 2*x*z, 1 - 2*y*y - 2*z*z)
-      #logger.debug("rotation quat: %f %f %f %f, yaw: %s pitch: %s roll: %s" % (x, y, z, w, yaw, pitch, roll))
-      GObject.idle_add(self.update_headtracker_fov, pitch, -roll, yaw, priority=GObject.PRIORITY_HIGH)
+        GObject.idle_add(self._poll_oculus)
+
+    def _poll_oculus(self):
+        import time
+        before = time.time()
+        self.rift.poll()
+        #print(1000*(time.time()-before))
+        x, y, z, w = self.rift.rotation
+        yaw = math.asin(2*x*y + 2*z*w)
+        pitch = math.atan2(2*x*w - 2*y*z, 1 - 2*x*x - 2*z*z)
+        roll = math.atan2(2*y*w - 2*x*z, 1 - 2*y*y - 2*z*z)
+        #logger.debug("rotation quat: %f %f %f %f, yaw: %s pitch: %s roll: %s" % (x, y, z, w, yaw, pitch, roll))
+        GObject.idle_add(self.update_headtracker_fov, pitch, -roll, yaw)
 
     def _on_eos(self, bus, message):
         logger.info("Got EOS")
         self.pipeline.set_state(Gst.State.NULL)
+        if config['benchmark_mode']:
+            took = time.time() - self.start_time
+            fps = NUM_BUFFERS/took
+            logger.info('Benchmark: %.1f fps' %fps)
+            self.schedule_exit()
         self.run_post_eos_actions()
 
     def _on_error(self, bus, message):
