@@ -22,7 +22,7 @@ Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
 
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, colorimetry=(string)1:4:7:1, framerate=(fraction)30/1"
 pipeline_source = 'videotestsrc is-live=true ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
-#pipeline_source = 'filesrc location=../sim.mp4 ! qtdemux ! avdec_h264 ! queue'
+pipeline_source = 'filesrc location=../sim.mp4 ! qtdemux ! avdec_h264 ! queue'
 #pipeline_source = 'filesrc location=../sim_short.mp4 ! qtdemux ! avdec_h264 ! queue'
 
 
@@ -127,7 +127,8 @@ void main() {{
 '''
 
 config_default = {
-    'headtracker_enable': True,
+    #'headtracker_enable': True,
+    'headtracker_enable': False,
     'headtracker_fov': 70,
     'render_fps': 60,
     'font_size': 30,
@@ -135,6 +136,7 @@ config_default = {
     'display_width': 1280,
     'display_height': 800,
     'benchmark_mode': False,
+    #'benchmark_mode': True,
 }
 
 def save_config(config_dict, config_fpath):
@@ -185,6 +187,7 @@ class FpvPipeline:
 
     def start(self):
         if self.is_running():
+            self.disable_headtracker_fov()
             self.add_post_eos_action(self.start)
             self.stop()
             return
@@ -197,7 +200,6 @@ class FpvPipeline:
         self.activate_bus()
         self.update_shader()
         if config['headtracker_enable']:
-            self.enable_frame_callback()
             self.enable_headtracker_fov()
         self.pipeline.set_state(Gst.State.PLAYING)
         self.start_time = time.time()
@@ -247,15 +249,24 @@ class FpvPipeline:
         self.bus.connect('message::eos', self._on_eos)
         self.bus.connect('message::error', self._on_error)
 
-    def enable_frame_callback(self):
-        sink = self.pipeline.get_by_name('glimagesink')
-        if sink:
-            sink.connect("client-draw", self._on_frame)
-
     def enable_headtracker_fov(self):
         gltransformation = self.pipeline.get_by_name('gltransformation')
         gltransformation.set_property('fov', config['headtracker_fov'])
         gltransformation.set_property('pivot-z', 30)
+        self.headtracker_tid = GObject.timeout_add(int(1000/config['render_fps']-2),self.poll_oculus, priority=GObject.PRIORITY_HIGH) 
+
+    def disable_headtracker_fov(self):
+        GObject.source_remove(self.headtracker_tid)
+
+    def poll_oculus(self):
+        self.rift.poll()
+        x, y, z, w = self.rift.rotation
+        yaw = math.asin(2*x*y + 2*z*w)
+        pitch = math.atan2(2*x*w - 2*y*z, 1 - 2*x*x - 2*z*z)
+        roll = math.atan2(2*y*w - 2*x*z, 1 - 2*y*y - 2*z*z)
+        #logger.debug("rotation quat: %f %f %f %f, yaw: %s pitch: %s roll: %s" % (x, y, z, w, yaw, pitch, roll))
+        self.update_headtracker_fov(pitch, -roll, yaw)
+        return True
 
     def update_headtracker_fov(self, rot_x, rot_y, rot_z):
         gltransformation = self.pipeline.get_by_name('gltransformation')
@@ -278,17 +289,6 @@ class FpvPipeline:
 
     # Event callbacks
 
-    def _on_frame(self, src, glcontext, sample, *args):
-        GObject.idle_add(self._poll_oculus)
-
-    def _poll_oculus(self):
-        self.rift.poll()
-        x, y, z, w = self.rift.rotation
-        yaw = math.asin(2*x*y + 2*z*w)
-        pitch = math.atan2(2*x*w - 2*y*z, 1 - 2*x*x - 2*z*z)
-        roll = math.atan2(2*y*w - 2*x*z, 1 - 2*y*y - 2*z*z)
-        #logger.debug("rotation quat: %f %f %f %f, yaw: %s pitch: %s roll: %s" % (x, y, z, w, yaw, pitch, roll))
-        GObject.idle_add(self.update_headtracker_fov, pitch, -roll, yaw)
 
     def _on_eos(self, bus, message):
         logger.info("Got EOS")
