@@ -168,10 +168,10 @@ if config['benchmark_mode']:
     import os
     os.environ['vblank_mode']="0" 
     NUM_BUFFERS = 1000
-    pipeline_source = 'videotestsrc num-buffers=%s is-live=false ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480' %NUM_BUFFERS
-    pipeline_source = 'filesrc location=../sim_short.mp4 ! qtdemux ! avdec_h264 ! queue'
-    #NUM_BUFFERS = 862
-    #pipeline_sink = 'glshader name=glshader ! glimagesink name=glimagesink sync=false'
+    #pipeline_source = 'filesrc location=/dev/zero num-buffers=%s blocksize=1382400 ! videoparse format=rgba width=720 height=480' %NUM_BUFFERS
+    #pipeline_source = 'filesrc location=/dev/zero num-buffers=%s blocksize=518400 ! videoparse format=i420 width=720 height=480' %NUM_BUFFERS
+    pipeline_source = 'filesrc location=/dev/zero num-buffers=%s blocksize=691200 ! videoparse format=yuy2 width=720 height=480' %NUM_BUFFERS
+    pipeline_sink = 'glshader name=glshader ! glimagesink name=glimagesink sync=false'
 
 class FpvPipeline:
     def __init__(self, mainloop=None):
@@ -282,10 +282,7 @@ class FpvPipeline:
         GObject.idle_add(self._poll_oculus)
 
     def _poll_oculus(self):
-        import time
-        before = time.time()
         self.rift.poll()
-        #print(1000*(time.time()-before))
         x, y, z, w = self.rift.rotation
         yaw = math.asin(2*x*y + 2*z*w)
         pitch = math.atan2(2*x*w - 2*y*z, 1 - 2*x*x - 2*z*z)
