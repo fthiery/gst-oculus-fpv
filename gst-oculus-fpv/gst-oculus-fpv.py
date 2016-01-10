@@ -4,11 +4,10 @@
 
 import sys
 import time
+import json
 
 import logging
 logger = logging.getLogger('FpvPipeline')
-
-import json
 
 import gi
 gi.require_version('Gst', '1.0')
@@ -19,6 +18,23 @@ Gst.debug_set_active(True)
 Gst.debug_set_colored(True)
 Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
 #Gst.debug_set_threshold_for_name("glimage*", 5)
+
+config_default = {
+    #'headtracker_enable': True,
+    'headtracker_enable': False,
+    'headtracker_fov': 70,
+    'render_fps': 60,
+    'font_size': 30,
+    'bitrate_video': 4000,
+    'display_width': 1280,
+    'display_height': 800,
+    #'display_width': 2160,
+    #'display_height': 1200,
+    #'display_width': 3840,
+    #'display_height': 2160,
+    'benchmark_mode': False,
+    #'benchmark_mode': True,
+}
 
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, colorimetry=(string)1:4:7:1, framerate=(fraction)30/1"
 pipeline_source = 'videotestsrc is-live=true ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
@@ -125,19 +141,6 @@ void main() {{
     gl_FragColor = color;
 }}
 '''
-
-config_default = {
-    #'headtracker_enable': True,
-    'headtracker_enable': False,
-    'headtracker_fov': 70,
-    'render_fps': 60,
-    'font_size': 30,
-    'bitrate_video': 4000,
-    'display_width': 1280,
-    'display_height': 800,
-    'benchmark_mode': False,
-    #'benchmark_mode': True,
-}
 
 def save_config(config_dict, config_fpath):
     with open(config_fpath, 'w') as config_file:
