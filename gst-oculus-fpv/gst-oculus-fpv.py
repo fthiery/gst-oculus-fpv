@@ -38,8 +38,7 @@ config_default = {
 
 #source = "v4l2src ! video/x-raw, format=(string)YUY2, width=(int)640, height=(int)360, pixel-aspect-ratio=(fraction)1/1, interlace-mode=(string)progressive, colorimetry=(string)1:4:7:1, framerate=(fraction)30/1"
 pipeline_source = 'videotestsrc is-live=true ! video/x-raw, format=(string)YUY2, width=(int)720, height=(int)480'
-pipeline_source = 'filesrc location=../sim.mp4 ! qtdemux ! avdec_h264 ! queue'
-#pipeline_source = 'filesrc location=../sim_short.mp4 ! qtdemux ! avdec_h264 ! queue'
+#pipeline_source = 'filesrc location=../sim.mp4 ! qtdemux ! h264parse ! avdec_h264 ! queue'
 
 
 # as of gstreamer 1.6.2 glimagesink currently does not yet post key presses on the bus, so lets use xvimagesink to toggle recording using the "r" key for testing and "q" for quitting (ctrl+c also works)
@@ -283,7 +282,9 @@ class FpvPipeline:
         try:
             glshader.set_property("fragment", shader)
         except TypeError:
-            glshader.set_property("location", "oculus.frag")
+            with open('/tmp/shader.frag', 'w') as f:
+                f.write(shader)
+            glshader.set_property("location", "/tmp/shader.frag")
 
     def set_record_overlay(self):
         o = self.pipeline.get_by_name('timeoverlay')
